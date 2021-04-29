@@ -132,26 +132,27 @@ int inner_sort(Buffer *buf)
 
 int merge_sort(Buffer *buf, int input_blk_start, int input_blk_end, int output_blk_start)
 {
-    int seg_num = (input_blk_end-input_blk_start) / buf->numAllBlk;
+    int seg_num = (input_blk_end-input_blk_start) / buf->numAllBlk + 1;
     unsigned char** buf_blk_ptrs = (unsigned char**)malloc(seg_num * sizeof(unsigned char*));
     int i, k;
     int seg_cnt = 0;
     int data[2];
     int min;
     unsigned char* output_blk;
-    int output_blk_offset = 0;
+    int output_blk_offset;
     int next_blk = output_blk_start;
 
     for(i=0; i<seg_num; i++)
     {
         /* Read the block from the hard disk */
-        if ((buf_blk_ptrs[i] = readBlockFromDisk(input_blk_start+(buf->numAllBlk)*i, &buf)) == NULL)
+        if ((buf_blk_ptrs[i] = readBlockFromDisk(input_blk_start+(buf->numAllBlk)*i, buf)) == NULL)
         {
             perror("Reading Block Failed!\n");
             return -1;
         }
     }
     output_blk = getNewBlockInBuffer(buf);
+    output_blk_offset = 0;
 
     while(seg_cnt < seg_num)
     {
@@ -163,15 +164,22 @@ int merge_sort(Buffer *buf, int input_blk_start, int input_blk_end, int output_b
                 continue;
 
             read_tuple_from_blk(buf_blk_ptrs[i], 0, data);
+            
             if(data[1] == SEG_END) //读到段尾,将段指针置为空
-            {
+            {      
+                printf("%d\n", data[0]);     
+                /* free the block */
+                freeBlockInBuffer(buf_blk_ptrs[i] - buf->blkSize + TUPLE_SIZE, buf);
                 seg_cnt += 1;
                 buf_blk_ptrs[i] = NULL;
             }
             else if(data[1] == BLK_END) //读到块尾,重新读入一块到内存
             {
+                /* free the block */
+                freeBlockInBuffer(buf_blk_ptrs[i] - buf->blkSize + TUPLE_SIZE, buf);
+
                 /* Read the block from the hard disk */
-                if ((buf_blk_ptrs[i] = readBlockFromDisk(data[0], &buf)) == NULL)
+                if ((buf_blk_ptrs[i] = readBlockFromDisk(data[0], buf)) == NULL)
                 {
                     perror("Reading Block Failed!\n");
                     return -1;
@@ -183,26 +191,31 @@ int merge_sort(Buffer *buf, int input_blk_start, int input_blk_end, int output_b
                 k = i;
             }
         }
+        printf("%d\n", k);
+        if(buf_blk_ptrs[k] != NULL)
+        {
+            memcpy(output_blk+output_blk_offset, buf_blk_ptrs[k], TUPLE_SIZE);
+            output_blk_offset += TUPLE_SIZE;
+            buf_blk_ptrs[k] += TUPLE_SIZE;
+        }
 
-        memcpy(output_blk+output_blk_offset, buf_blk_ptrs[k], TUPLE_SIZE);
-        output_blk_offset += TUPLE_SIZE;
         if(output_blk_offset >= buf->blkSize - TUPLE_SIZE)
         {
             next_blk += 1;
             fill_endline(output_blk+output_blk_offset, next_blk, BLK_END);
-            
-        }
+            /* Write the block to the hard disk */
+            if (writeBlockToDisk(output_blk, next_blk-1, buf) != 0)
+            {
+                perror("Writing Block Failed!\n");
+                return -1;
+            }
 
+            output_blk = getNewBlockInBuffer(buf);
+            output_blk_offset = 0;
 
-
-        
+        } 
+         
     }
-
-    
-
-
-
-
     free(buf_blk_ptrs);
 }
 
@@ -252,6 +265,7 @@ int TPMMS(int blk_start, int blk_end, int output_blk_start)
             }
         }
     }
+    merge_sort(&buf, 201, 216, 301);
 }
 
 
