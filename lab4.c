@@ -121,10 +121,41 @@ int inner_sort(Buffer *buf)
     }
 }
 
-// int merge_sort(Buffer *buf)
-// {
+int merge_sort(Buffer *buf, int blk_start, int blk_end)
+{
+    int write_blk_cnt = blk_end - blk_start + 1;
+    int epoch = (blk_end-blk_start+1) / buf->numAllBlk;
+    int *disk_blk_ptrs = (int*)malloc(epoch * sizeof(int));
+    int *buf_blk_ptrs = (int*)malloc(epoch * sizeof(int));
+    int i, j;
+    if(!disk_blk_ptrs || !buf_blk_ptrs)
+    {
+        perror("create disk_blk_ptrs array fail\n");
+        return -1;
+    }
 
-// }
+    for(i=0; i<epoch; i++)
+    {
+        disk_blk_ptrs[i] = blk_start + i*buf->numAllBlk;
+    }
+
+    while(write_blk_cnt > 0)
+    {
+        for(i=0; i<epoch; i++)
+        {
+            /* Read the block from the hard disk */
+            if ((buf_blk_ptrs[i] = readBlockFromDisk(disk_blk_ptrs[i], &buf)) == NULL)
+            {
+                perror("Reading Block Failed!\n");
+                return -1;
+            }
+        }
+    }
+    free(disk_blk_ptrs);
+    free(buf_blk_ptrs);
+}
+
+
 int TPMMS(int blk_start, int blk_end)
 {
     Buffer buf;
@@ -138,8 +169,8 @@ int TPMMS(int blk_start, int blk_end)
         return -1;
     }
 
-    int epoch_R = (R_END - R_BIGIN + 1) / buf.numAllBlk;
-    for(i=0; i<epoch_R; i++)
+    int epoch = (blk_start - blk_end + 1) / buf.numAllBlk;
+    for(i=0; i<epoch; i++)
     {
         for(int j=1; j<=8; j++)
         {
@@ -166,16 +197,8 @@ int TPMMS(int blk_start, int blk_end)
         }
     }
 
-    // int epoch_S = (S_END - S_BEGIN + 1) / buf.numAllBlk;
-    // for(int i=1; i<S_END; i++)
-    // {
-    //     /* Read the block from the hard disk */
-    //     if ((blk = readBlockFromDisk(i, &buf)) == NULL)
-    //     {
-    //         perror("Reading Block Failed!\n");
-    //         return -1;
-    //     }     
-    // }
+    // Phase 2
+    merge_sort(&buf, 200+blk_start, 200+blk_end);
 }
 
 
