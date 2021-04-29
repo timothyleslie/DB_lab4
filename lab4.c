@@ -5,6 +5,15 @@
 
 
 
+int fill_endline(unsigned char*endline, int next_blk)
+{
+    unsigned char str[9];
+    sprintf(str, "%d", next_blk);
+    sprintf(str+4, "%d", END_LINE);
+    memcpy(endline, str, 8);
+    return 0;
+}
+
 void buf_swap(unsigned char*a, unsigned char*b)
 {
     unsigned char tmp[9];
@@ -121,46 +130,13 @@ int inner_sort(Buffer *buf)
     }
 }
 
-int merge_sort(Buffer *buf, int blk_start, int blk_end)
-{
-    int write_blk_cnt = blk_end - blk_start + 1;
-    int epoch = (blk_end-blk_start+1) / buf->numAllBlk;
-    int *disk_blk_ptrs = (int*)malloc(epoch * sizeof(int));
-    int *buf_blk_ptrs = (int*)malloc(epoch * sizeof(int));
-    int i, j;
-    if(!disk_blk_ptrs || !buf_blk_ptrs)
-    {
-        perror("create disk_blk_ptrs array fail\n");
-        return -1;
-    }
 
-    for(i=0; i<epoch; i++)
-    {
-        disk_blk_ptrs[i] = blk_start + i*buf->numAllBlk;
-    }
-
-    while(write_blk_cnt > 0)
-    {
-        for(i=0; i<epoch; i++)
-        {
-            /* Read the block from the hard disk */
-            if ((buf_blk_ptrs[i] = readBlockFromDisk(disk_blk_ptrs[i], &buf)) == NULL)
-            {
-                perror("Reading Block Failed!\n");
-                return -1;
-            }
-        }
-    }
-    free(disk_blk_ptrs);
-    free(buf_blk_ptrs);
-}
-
-
-int TPMMS(int blk_start, int blk_end)
+int TPMMS(int blk_start, int blk_end, int output_blk_start)
 {
     Buffer buf;
     unsigned char *blk;
     int i;
+    int next_blk = output_blk_start;
 
     /* Initialize the buffer */
     if (!initBuffer(520, 64, &buf))
@@ -168,8 +144,8 @@ int TPMMS(int blk_start, int blk_end)
         perror("Buffer Initialization Failed!\n");
         return -1;
     }
-
-    int epoch = (blk_start - blk_end + 1) / buf.numAllBlk;
+    
+    int epoch = (blk_end - blk_start + 1) / buf.numAllBlk;
     for(i=0; i<epoch; i++)
     {
         for(int j=1; j<=8; j++)
@@ -184,10 +160,14 @@ int TPMMS(int blk_start, int blk_end)
         }
 
         inner_sort(&buf);
-
+        
         for(int j=0; j<8; j++)
         {
+            next_blk += 1;
             blk = buf.data + 1 + j*(buf.blkSize+1);
+            unsigned char *end_line = blk + buf.blkSize - TUPLE_SIZE;
+            fill_endline(end_line, next_blk);
+
             /* Write the block to the hard disk */
             if (writeBlockToDisk(blk, 201+i*buf.numAllBlk+j, &buf) != 0)
             {
@@ -196,15 +176,12 @@ int TPMMS(int blk_start, int blk_end)
             }
         }
     }
-
-    // Phase 2
-    merge_sort(&buf, 200+blk_start, 200+blk_end);
 }
 
 
 int main(int argc, char **argv)
 {
     // find_key_by_num(50);
-    TPMMS(R_BIGIN, R_END);
+    TPMMS(R_BIGIN, R_END, 201);
 
 }
