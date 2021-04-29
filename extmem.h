@@ -11,7 +11,7 @@
 #define BLOCK_AVAILABLE 0
 #define BLOCK_UNAVAILABLE 1
 
-#define R_BIGIN 1
+#define R_BEGIN 1
 #define R_END   16
 #define S_BEGIN 17
 #define S_END   48
