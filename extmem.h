@@ -17,7 +17,8 @@
 #define S_END   48
 #define TUPLE_SIZE 8
 #define KEY_MAX 100
-#define END_LINE 9999
+#define BLK_END 9000
+#define SEG_END 9999
 
 typedef struct tagBuffer {
     unsigned long numIO; /* Number of IO's*/
