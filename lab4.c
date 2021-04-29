@@ -4,6 +4,29 @@
 #include "extmem.h"
 
 
+
+void buf_swap(unsigned char*a, unsigned char*b)
+{
+    unsigned char tmp[9];
+    memcpy(tmp, a, 8);
+    memcpy(a, b, 8);
+    memcpy(b, tmp, 8);
+}
+
+void find_data_in_buf(Buffer *buf, int *index)
+{
+    int i = *index;
+    if(i % (buf->blkSize+1) == 0)
+    {
+        *index += 1;
+    }
+    else if(i % (buf->blkSize+1) == buf->blkSize+1-TUPLE_SIZE)
+    {
+        *index += TUPLE_SIZE + 1;
+    }
+}
+
+
 int read_tuple_from_blk(unsigned char *buf, int start, int *result)
 {
     int k;
@@ -66,20 +89,46 @@ int find_key_by_num(int num)
     printf("IO's is %d\n", buf.numIO); /* Check the number of IO's */
 }
 
-int inner_sort(Buffer *buf, unsigned char **blk_pointers)
+int inner_sort(Buffer *buf)
 {
-    
+    unsigned char *buf_start = buf->data;
+    int i, j, k;
+    int min;
+    int data[2];
+    for(i=0; i<buf->bufSize-TUPLE_SIZE; i=i+TUPLE_SIZE)
+    {
+        find_data_in_buf(buf, &i);
+        read_tuple_from_blk(buf->data, i, data);
+        min = data[0];
+        k = i;
+        for(j=i+TUPLE_SIZE; j<buf->bufSize-TUPLE_SIZE; j=j+TUPLE_SIZE)
+        {
+            find_data_in_buf(buf, &j);
+            
+            read_tuple_from_blk(buf->data, j, data);
+            if(data[0] < min)
+            {
+                // printf("%d\n", j);
+                k = j;
+                min = data[0];
+            }
+        }
+        if(i!=k)
+        {
+            // printf("%d, %d, %d\n", i, j, k);
+            buf_swap(buf_start+i, buf_start+k);
+        }     
+    }
 }
 
-int merge_sort(Buffer *buf)
-{
+// int merge_sort(Buffer *buf)
+// {
 
-}
+// }
 int TPMMS(int blk_start, int blk_end)
 {
     Buffer buf;
     unsigned char *blk;
-    unsigned char *blk_pointers[8];
     int i;
 
     /* Initialize the buffer */
@@ -102,25 +151,34 @@ int TPMMS(int blk_start, int blk_end)
                 return -1;
             }
         }
-        inner_sort(&buf, blk_pointers);
 
+        inner_sort(&buf);
 
-    }
-
-    int epoch_S = (S_END - S_BEGIN + 1) / buf.numAllBlk;
-    for(int i=1; i<S_END; i++)
-    {
-        /* Read the block from the hard disk */
-        if ((blk = readBlockFromDisk(i, &buf)) == NULL)
+        for(int j=0; j<8; j++)
         {
-            perror("Reading Block Failed!\n");
-            return -1;
+            blk = buf.data + 1 + j*(buf.blkSize+1);
+            /* Write the block to the hard disk */
+            if (writeBlockToDisk(blk, 201+i*buf.numAllBlk+j, &buf) != 0)
+            {
+                perror("Writing Block Failed!\n");
+                return -1;
+            }
         }
-
-        
     }
 
+    // int epoch_S = (S_END - S_BEGIN + 1) / buf.numAllBlk;
+    // for(int i=1; i<S_END; i++)
+    // {
+    //     /* Read the block from the hard disk */
+    //     if ((blk = readBlockFromDisk(i, &buf)) == NULL)
+    //     {
+    //         perror("Reading Block Failed!\n");
+    //         return -1;
+    //     }     
+    // }
 }
+
+
 int main(int argc, char **argv)
 {
     // find_key_by_num(50);
