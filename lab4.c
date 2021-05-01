@@ -315,6 +315,99 @@ int create_index(int input_blk_start, int input_blk_end, int output_blk_start)
 
 }
 
+
+int search_by_index(int target_key, int index_blk_start, int index_blk_end, int output_blk_start)
+{
+    Buffer buf;
+    unsigned char *blk;
+    int i, j;
+    int next_blk = output_blk_start;
+    unsigned char* output_blk;
+    int output_blk_offset;
+    int data[2];
+    int search_blk_start;
+    int search_blk_end;
+
+
+    // 找到要带搜索的磁盘块
+    i = index_blk_start;
+    while(i<=index_blk_end)
+    {
+        for(j=0; j<buf.numAllBlk && ((i+j)<=index_blk_end); j++)
+        {
+            if ((blk = readBlockFromDisk(i+j, &buf)) == NULL)
+            {
+                perror("Reading Block Failed!\n");
+                return -1;
+            }
+        }
+
+        int valid_blk_num = j;
+        search_blk_start = i;
+        search_blk_end = j;
+        
+        for(j=0; j<=valid_blk_num*(buf.blkSize+1); j++)
+        {
+            find_data_in_buf(&buf, j);
+            read_tuple_from_blk(buf.data, j, data);
+
+            if(data[0] > target_key)
+            {
+                if(i == index_blk_start) //目标值小于表中所有的值
+                {
+                    printf("%d not exist\n", target_key);
+                    return -1;
+                }
+                else
+                {
+                    search_blk_end = data[1] - 1;
+                }
+            }
+
+            else if(data[0] < target_key)
+            {
+                if(i+j == index_blk_end)
+                {
+                    search_blk_end = data[1];
+                }
+                search_blk_start = data[1];
+            }
+        }
+        i += buf.numAllBlk;
+    }
+
+    // 在带搜索的磁盘块中寻找目标值
+    output_blk = getNewBlockInBuffer(&buf);
+    output_blk_offset = 0;
+    for(i=search_blk_start; i<=search_blk_end; i++)
+    {
+        if ((blk = readBlockFromDisk(i, &buf)) == NULL)
+        {
+            perror("Reading Block Failed!\n");
+            return -1;
+        }
+
+        for(j=0; j<buf.blkSize-TUPLE_SIZE; j++)
+        {
+            read_tuple_from_blk(blk, j, data);
+            if(data[0] == target_key)
+            {
+                printf("(%d, %d)\n", data[0], data[1]);
+                write_tuple_to_blk(output_blk+output_blk_offset, data[0], data[1]);
+                output_blk_offset += TUPLE_SIZE;
+
+                if(output_blk_offset == buf.blkSize)
+                {
+                    next_blk += 1;
+                    writeBlockToDisk(output_blk, next_blk-1, &buf);
+                    output_blk = getNewBlockInBuffer(&buf);
+                    output_blk_offset = 0;
+                }
+            }
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     // find_key_by_num(50);
