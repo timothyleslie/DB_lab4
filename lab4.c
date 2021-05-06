@@ -3,8 +3,6 @@
 #include <string.h>
 #include "extmem.h"
 
-
-
 int write_tuple_to_blk(unsigned char*blk, int key1, int key2)
 {
     unsigned char str[9];
@@ -55,11 +53,15 @@ int read_tuple_from_blk(unsigned char *buf, int start, int *result)
     return 0;
 }
 
-int find_key_by_num(int num)
+int find_key_by_num(int num, int input_blk_start, int input_blk_end, int output_blk_start)
 {
     Buffer buf; /* A buffer */
     unsigned char *blk; /* A pointer to a block */
     int i = 0;
+    unsigned char* output_blk;
+    int output_blk_offset;
+    int next_blk = output_blk_start;
+    
 
     /* Initialize the buffer */
     if (!initBuffer(520, 64, &buf))
@@ -67,8 +69,11 @@ int find_key_by_num(int num)
         perror("Buffer Initialization Failed!\n");
         return -1;
     }
+
+    output_blk = getNewBlockInBuffer(&buf);
+    output_blk_offset = 0;
    
-    for(i = S_BEGIN; i <= S_END; i++)
+    for(i = input_blk_start; i <= input_blk_end; i++)
     {
         /* Read the block from the hard disk */
         if ((blk = readBlockFromDisk(i, &buf)) == NULL)
@@ -85,50 +90,112 @@ int find_key_by_num(int num)
             if(result[0] == num)
             {
                 printf("(%d, %d)\n", result[0], result[1]);
+                write_tuple_to_blk(output_blk+output_blk_offset, result[0], result[1]);
+                output_blk_offset += TUPLE_SIZE;
+
+                if(output_blk_offset >= buf.blkSize-TUPLE_SIZE)
+                {
+                    next_blk += 1;
+                    write_tuple_to_blk(output_blk+output_blk_offset, next_blk, BLK_END);
+                    if (writeBlockToDisk(output_blk, next_blk-1, &buf) != 0)
+                    {
+                        perror("Writing Block Failed!\n");
+                        return -1;
+                    }
+                    output_blk = getNewBlockInBuffer(&buf);
+                    clearBlockInBuffer(output_blk, &buf);
+                    output_blk_offset = 0;
+                }
             }
         }
+        freeBlockInBuffer(blk, &buf);
+    }
 
-        /* Write the block to the hard disk */
-        if (writeBlockToDisk(blk, i, &buf) != 0)
+    //如果最后还有数据但是不满一个磁盘块
+    if(output_blk_offset != 0)
+    {
+        next_blk += 1;
+        write_tuple_to_blk(output_blk+output_blk_offset, next_blk, BLK_END);
+        if (writeBlockToDisk(output_blk, next_blk-1, &buf) != 0)
         {
             perror("Writing Block Failed!\n");
             return -1;
-        }
+        } 
     }
 
     printf("IO's is %d\n", buf.numIO); /* Check the number of IO's */
+    freeBuffer(&buf);
 }
 
-int inner_sort(Buffer *buf)
+int inner_sort(Buffer *buf, int input_blk_start, int input_blk_end, int output_blk_start)
 {
     unsigned char *buf_start = buf->data;
+    unsigned char *blk;
     int i, j, k;
     int min;
     int data[2];
-    for(i=0; i<buf->bufSize-TUPLE_SIZE; i=i+TUPLE_SIZE)
+    int next_blk = output_blk_start;
+    
+
+    int epochs = (input_blk_end - input_blk_start + 1) / buf->numAllBlk;
+    for(int epoch=0; epoch<epochs; epoch++)
     {
-        find_data_in_buf(buf, &i);
-        read_tuple_from_blk(buf->data, i, data);
-        min = data[0];
-        // printf("%d, %d\n", data[0], data[1]);
-        k = i;
-        for(j=i+TUPLE_SIZE; j<buf->bufSize-TUPLE_SIZE; j=j+TUPLE_SIZE)
+        /* read segment into buf */
+        for(int j=0; j<8; j++)
         {
-            find_data_in_buf(buf, &j);
-            
-            read_tuple_from_blk(buf->data, j, data);
-            if(data[0] < min)
+            int blk_index = input_blk_start + epoch*(buf->numAllBlk) + j;
+            /* Read the block from the hard disk */
+            if ((blk = readBlockFromDisk(blk_index, buf)) == NULL)
             {
-                // printf("%d\n", j);
-                k = j;
-                min = data[0];
+                perror("Reading Block Failed!\n");
+                return -1;
             }
         }
-        if(i!=k)
+        
+
+        /* sorting */
+        for(i=0; i<buf->bufSize-TUPLE_SIZE; i=i+TUPLE_SIZE)
         {
-            // printf("%d, %d, %d\n", i, j, k);
-            buf_swap(buf_start+i, buf_start+k);
-        }     
+            find_data_in_buf(buf, &i);
+            read_tuple_from_blk(buf->data, i, data);
+            min = data[0];
+            // printf("%d, %d\n", data[0], data[1]);
+            k = i;
+            for(j=i+TUPLE_SIZE; j<buf->bufSize-TUPLE_SIZE; j=j+TUPLE_SIZE)
+            {
+                find_data_in_buf(buf, &j);
+                
+                read_tuple_from_blk(buf->data, j, data);
+                if(data[0] < min)
+                {
+                    // printf("%d\n", j);
+                    k = j;
+                    min = data[0];
+                }
+            }
+            if(i!=k)
+            {
+                // printf("%d, %d, %d\n", i, j, k);
+                buf_swap(buf_start+i, buf_start+k);
+            }     
+        }
+        
+        /* write buf to disk */
+        for(int j=0; j<8; j++)
+        {
+            next_blk += 1;
+            blk = buf->data + 1 + j*(buf->blkSize+1);
+            unsigned char *end_line = blk + buf->blkSize - TUPLE_SIZE;
+            int end_flag = (j == 7) ? SEG_END : BLK_END;
+            // printf("%d\n", end_flag);
+            write_tuple_to_blk(end_line, next_blk, end_flag);
+            /* Write the block to the hard disk */
+            if (writeBlockToDisk(blk, output_blk_start+epoch*(buf->numAllBlk)+j, buf) != 0)
+            {
+                perror("Writing Block Failed!\n");
+                return -1;
+            }
+        }
     }
 }
 
@@ -227,52 +294,21 @@ int merge_sort(Buffer *buf, int input_blk_start, int input_blk_end, int output_b
     free(buf_blk_ptrs);
 }
 
-int TPMMS(int blk_start, int blk_end, int inner_blk_start, int inner_blk_end, int output_blk_start)
+int TPMMS(int input_blk_start, int input_blk_end, int inner_blk_start, int inner_blk_end, int output_blk_start)
 {
     Buffer buf;
-    unsigned char *blk;
-    int i;
-    int next_blk = inner_blk_start;
-
+    
     /* Initialize the buffer */
     if (!initBuffer(520, 64, &buf))
     {
         perror("Buffer Initialization Failed!\n");
         return -1;
     }
-    
-    int epoch = (blk_end - blk_start + 1) / buf.numAllBlk;
-    for(i=0; i<epoch; i++)
-    {
-        for(int j=0; j<8; j++)
-        {
-            int blk_index = blk_start + i*buf.numAllBlk + j;
-            /* Read the block from the hard disk */
-            if ((blk = readBlockFromDisk(blk_index, &buf)) == NULL)
-            {
-                perror("Reading Block Failed!\n");
-                return -1;
-            }
-        }
 
-        inner_sort(&buf);
-        
-        for(int j=0; j<8; j++)
-        {
-            next_blk += 1;
-            blk = buf.data + 1 + j*(buf.blkSize+1);
-            unsigned char *end_line = blk + buf.blkSize - TUPLE_SIZE;
-            int end_flag = (j == 7) ? SEG_END : BLK_END;
-            // printf("%d\n", end_flag);
-            write_tuple_to_blk(end_line, next_blk, end_flag);
-            /* Write the block to the hard disk */
-            if (writeBlockToDisk(blk, inner_blk_start+i*buf.numAllBlk+j, &buf) != 0)
-            {
-                perror("Writing Block Failed!\n");
-                return -1;
-            }
-        }
-    }
+    /* phase 1 */
+    inner_sort(&buf, input_blk_start, input_blk_end, inner_blk_start);
+    
+    /* phase 2 */
     merge_sort(&buf, inner_blk_start, inner_blk_end, output_blk_start);
 }
 
@@ -317,10 +353,22 @@ int create_index(int input_blk_start, int input_blk_end, int output_blk_start)
                 perror("Writing Block Failed!\n");
                 return -1;
             }
-            freeBlockInBuffer(output_blk, &buf);
             output_blk = getNewBlockInBuffer(&buf);
+            clearBlockInBuffer(output_blk, &buf);
             output_blk_offset = 0;
         }
+    }
+
+    //如果最后还有数据但是不满一个磁盘块
+    if(output_blk_offset != 0)
+    {
+        next_blk += 1;
+        write_tuple_to_blk(output_blk+output_blk_offset, next_blk, BLK_END);
+        if (writeBlockToDisk(output_blk, next_blk-1, &buf) != 0)
+        {
+            perror("Writing Block Failed!\n");
+            return -1;
+        } 
     }
 
 }
@@ -823,12 +871,51 @@ int intersect(int R_start, int R_end, int S_start, int S_end, int output_blk_sta
 
 int main(int argc, char **argv)
 {
-    // find_key_by_num(50);
-    // TPMMS(R_BEGIN, R_END, 201, 216, 301);
-    // TPMMS(S_BEGIN, S_END, 217, 248, 317);
-    // create_index(317, 348, 417);
-    // search_by_index(50, 417, 420, 517);
-    sort_merge_join(301, 316, 317, 348, 601);
-    // intersect(301, 316, 317, 348, 701);
+    int input_blk_start, input_blk_end;
+    int output_blk_start;
+
+    /* 遍历搜索S.C=50 */
+    input_blk_start = S_BEGIN;
+    input_blk_end = S_END;
+    output_blk_start = 101;
+    find_key_by_num(50, input_blk_start, input_blk_end, output_blk_start);
+
+    /* 两阶段排序 */
+    input_blk_start = R_BEGIN;
+    input_blk_end = R_END;
+    int inner_sort_blk_start = 201;
+    int inner_sort_blk_end = 216;
+    output_blk_start = 301;
+    TPMMS(input_blk_start, input_blk_end, inner_sort_blk_start, inner_sort_blk_end, output_blk_start);
+
+    input_blk_start = S_BEGIN;
+    input_blk_end = S_END;
+    inner_sort_blk_start = 217;
+    inner_sort_blk_end = 248;
+    output_blk_start = 317;
+    TPMMS(input_blk_start, input_blk_end, inner_sort_blk_start, inner_sort_blk_end, output_blk_start);
+
+
+    /* 给S表建立索引 */
+    input_blk_start = 317;
+    input_blk_end = 348;
+    output_blk_start = 417;
+    create_index(input_blk_start, input_blk_end, output_blk_start);
+
+    /* 根据索引文件查找S.C=50 */
+    int target = 50;
+    input_blk_start = 417;
+    input_blk_end = 420;
+    output_blk_start =501;
+    search_by_index(target, input_blk_start, input_blk_end, output_blk_start);
+
+
+    /* 连接操作 */
+    output_blk_start = 601;
+    sort_merge_join(301, 316, 317, 348, output_blk_start);
+
+    /* 交操作 */
+    output_blk_start = 701;
+    intersect(301, 316, 317, 348, output_blk_start);
 
 }
