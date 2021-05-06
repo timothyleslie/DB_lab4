@@ -434,6 +434,190 @@ int search_by_index(int target_key, int index_blk_start, int index_blk_end, int 
     printf("IO's is %d\n", buf.numIO); 
 }
 
+
+int sort_merge_join(int R_start, int R_end, int S_start, int S_end, int output_blk_start)
+{
+    Buffer buf;
+    unsigned char *blk;
+    unsigned char *s;
+    unsigned char *r;
+    int s_offset, r_offset;
+    int s_blk, r_blk;
+    int i, j;
+    int next_blk = output_blk_start;
+    unsigned char* output_blk;
+    int output_blk_offset;
+    int r_data[2], s_data[2];
+    int s_tmp_start;
+    int merge_end_flag = 0;
+
+
+    /* Initialize the buffer */
+    if (!initBuffer(520, 64, &buf))
+    {
+        perror("Buffer Initialization Failed!\n");
+        return -1;
+    }
+
+    /* initialize for loop */
+    r_blk = R_start;
+    s_blk = S_start;
+    if ((r = readBlockFromDisk(r_blk, &buf)) == NULL)
+    {
+        perror("Reading Block Failed!\n");
+        return -1;
+    }
+    r_offset = 0;
+
+    if ((s = readBlockFromDisk(s_blk, &buf)) == NULL)
+    {
+        perror("Reading Block Failed!\n");
+        return -1;
+    }
+    s_offset = 0;
+
+    output_blk = getNewBlockInBuffer(&buf);
+    clearBlockInBuffer(output_blk, &buf);
+    output_blk_offset = 0;
+    next_blk = output_blk_start;
+
+    while(!merge_end_flag)
+    {
+        read_tuple_from_blk(r+r_offset, 0, r_data);
+        read_tuple_from_blk(s+s_offset, 0, s_data);
+        if(r_data[1] == BLK_END)
+        {
+            if(r_blk == R_end)
+            {
+                merge_end_flag = 1;
+                break;
+            }
+            else 
+            {
+                freeBlockInBuffer(r, &buf);
+                r_blk += 1;
+                if ((r = readBlockFromDisk(r_blk, &buf)) == NULL)
+                {
+                    perror("Reading Block Failed!\n");
+                    return -1;
+                }
+                r_offset = 0;
+                read_tuple_from_blk(r+r_offset, 0, r_data);
+            }
+        }
+
+        if(s_data[1] == BLK_END)
+        {
+            if(s_blk == S_end)
+            {
+                merge_end_flag = 1;
+                break;
+            }
+            else 
+            {
+                freeBlockInBuffer(s, &buf);
+                s_blk += 1;
+                if ((s = readBlockFromDisk(s_blk, &buf)) == NULL)
+                {
+                    perror("Reading Block Failed!\n");
+                    return -1;
+                }
+                s_offset = 0;
+                read_tuple_from_blk(s+s_offset, 0, s_data);
+            }
+        }
+        printf("%d, %d\n", r_blk, s_blk);
+        if(r_data[0] < s_data[0])
+        {
+            r_offset += TUPLE_SIZE;
+        }
+        else if(r_data[0] > s_data[0])
+        {
+            s_offset += TUPLE_SIZE;
+        }
+
+        else
+        {
+            s_tmp_start = s_blk;
+
+            while(r_data[0] == s_data[0])
+            {
+                write_tuple_to_blk(output_blk+output_blk_offset, r_data[0], r_data[1]);
+                output_blk_offset += TUPLE_SIZE;
+                if(output_blk_offset >= buf.blkSize - TUPLE_SIZE)
+                {
+                    next_blk += 1;
+                    write_tuple_to_blk(output_blk+output_blk_offset, next_blk, BLK_END);
+                    if (writeBlockToDisk(output_blk, next_blk-1, &buf) != 0)
+                    {
+                        perror("Writing Block Failed!\n");
+                        return -1;
+                    }
+
+                    output_blk = getNewBlockInBuffer(&buf);
+                    clearBlockInBuffer(output_blk, &buf);
+                    output_blk_offset = 0;
+                }
+
+                write_tuple_to_blk(output_blk+output_blk_offset, s_data[0], s_data[1]);
+                output_blk_offset += TUPLE_SIZE;
+                if(output_blk_offset >= buf.blkSize - TUPLE_SIZE)
+                {
+                    next_blk += 1;
+                    write_tuple_to_blk(output_blk+output_blk_offset, next_blk, BLK_END);
+                    if (writeBlockToDisk(output_blk, next_blk-1, &buf) != 0)
+                    {
+                        perror("Writing Block Failed!\n");
+                        return -1;
+                    }
+
+                    output_blk = getNewBlockInBuffer(&buf);
+                    clearBlockInBuffer(output_blk, &buf);
+                    output_blk_offset = 0;
+                }
+
+                s_offset += TUPLE_SIZE;
+                read_tuple_from_blk(s+s_offset, 0, s_data);
+                // printf("%d\n", r_data[0]);
+                // printf("%d, %d\n", s_data[0], s_data[1]);
+                if(s_data[1] == BLK_END)
+                {
+                    s_blk += 1;
+                    if(s_blk > S_end)
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        freeBlockInBuffer(s, &buf);
+                        if ((s = readBlockFromDisk(s_blk, &buf)) == NULL)
+                        {
+                            perror("Reading Block Failed!\n");
+                            return -1;
+                        }
+                    } 
+                }
+            }
+
+            // printf("sblk: %d\n", s_blk);
+            r_offset += TUPLE_SIZE;
+            s_blk = s_tmp_start;
+            freeBlockInBuffer(s, &buf);
+            if ((s = readBlockFromDisk(s_blk, &buf)) == NULL)
+            {
+                perror("Reading Block Failed!\n");
+                return -1;
+            }
+            s_offset = 0;
+        }
+
+    }
+
+    /* Check the number of IO's */
+    printf("IO's is %d\n", buf.numIO); 
+}
+
+
 int main(int argc, char **argv)
 {
     // find_key_by_num(50);
@@ -441,6 +625,6 @@ int main(int argc, char **argv)
     // TPMMS(S_BEGIN, S_END, 217, 248, 317);
     // create_index(317, 348, 417);
     // search_by_index(50, 417, 420, 517);
-
+    sort_merge_join(301, 316, 317, 348, 601);
 
 }
