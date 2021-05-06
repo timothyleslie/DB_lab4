@@ -47,6 +47,9 @@ unsigned char *getNewBlockInBuffer(Buffer *buf);
 /* Set a block in a buffer to be available. */
 void freeBlockInBuffer(unsigned char *blk, Buffer *buf);
 
+/* Clear memory in a block */
+void clearBlockInBuffer(unsigned char *blk, Buffer *buf);
+
 /* Drop a block on the disk */
 int dropBlockOnDisk(unsigned int addr);
 

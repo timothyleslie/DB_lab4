@@ -210,6 +210,7 @@ int merge_sort(Buffer *buf, int input_blk_start, int input_blk_end, int output_b
             }
 
             output_blk = getNewBlockInBuffer(buf);
+            clearBlockInBuffer(output_blk, buf);
             output_blk_offset = 0;
         } 
          
@@ -329,8 +330,16 @@ int search_by_index(int target_key, int index_blk_start, int index_blk_end, int 
     int search_blk_end;
 
 
+    /* Initialize the buffer */
+    if (!initBuffer(520, 64, &buf))
+    {
+        perror("Buffer Initialization Failed!\n");
+        return -1;
+    }
+
     // 找到要带搜索的磁盘块
     i = index_blk_start;
+    int search_flag = 0;
     while(i<=index_blk_end)
     {
         for(j=0; j<buf.numAllBlk && ((i+j)<=index_blk_end); j++)
@@ -346,36 +355,31 @@ int search_by_index(int target_key, int index_blk_start, int index_blk_end, int 
         search_blk_start = i;
         search_blk_end = j;
         
-        for(j=0; j<=valid_blk_num*(buf.blkSize+1); j++)
+        printf("%d, %d\n", search_blk_start, search_blk_end);
+        for(j=0; j<=valid_blk_num*(buf.blkSize+1); j+=TUPLE_SIZE)
         {
-            find_data_in_buf(&buf, j);
+            find_data_in_buf(&buf, &j);
             read_tuple_from_blk(buf.data, j, data);
-
+            printf("%d, %d\n", data[0], data[1]);
             if(data[0] > target_key)
-            {
-                if(i == index_blk_start) //目标值小于表中所有的值
-                {
-                    printf("%d not exist\n", target_key);
-                    return -1;
-                }
-                else
-                {
-                    search_blk_end = data[1] - 1;
-                }
+            {        
+                search_blk_end = data[1] - 1;
+                search_flag = 1;
+                break;
             }
 
             else if(data[0] < target_key)
             {
-                if(i+j == index_blk_end)
-                {
-                    search_blk_end = data[1];
-                }
                 search_blk_start = data[1];
             }
+
+            printf("%d, %d\n", search_blk_start, search_blk_end);
         }
+        if(search_flag == 1)    break;
         i += buf.numAllBlk;
     }
 
+    printf("%d, %d\n", search_blk_start, search_blk_end);
     // 在带搜索的磁盘块中寻找目标值
     output_blk = getNewBlockInBuffer(&buf);
     output_blk_offset = 0;
@@ -396,16 +400,38 @@ int search_by_index(int target_key, int index_blk_start, int index_blk_end, int 
                 write_tuple_to_blk(output_blk+output_blk_offset, data[0], data[1]);
                 output_blk_offset += TUPLE_SIZE;
 
-                if(output_blk_offset == buf.blkSize)
+                if(output_blk_offset >= buf.blkSize - TUPLE_SIZE)
                 {
                     next_blk += 1;
-                    writeBlockToDisk(output_blk, next_blk-1, &buf);
+                    write_tuple_to_blk(output_blk+output_blk_offset, next_blk, BLK_END);
+                    if (writeBlockToDisk(output_blk, next_blk-1, &buf) != 0)
+                    {
+                        perror("Writing Block Failed!\n");
+                        return -1;
+                    }
+
                     output_blk = getNewBlockInBuffer(&buf);
+                    clearBlockInBuffer(output_blk, &buf);
                     output_blk_offset = 0;
                 }
             }
-        }
+        }    
     }
+
+    //如果最后还有数据但是不满一个磁盘块
+    if(output_blk_offset != 0)
+    {
+        next_blk += 1;
+        write_tuple_to_blk(output_blk+output_blk_offset, next_blk, BLK_END);
+        if (writeBlockToDisk(output_blk, next_blk-1, &buf) != 0)
+        {
+            perror("Writing Block Failed!\n");
+            return -1;
+        } 
+    }
+
+    /* Check the number of IO's */
+    printf("IO's is %d\n", buf.numIO); 
 }
 
 int main(int argc, char **argv)
@@ -413,6 +439,8 @@ int main(int argc, char **argv)
     // find_key_by_num(50);
     // TPMMS(R_BEGIN, R_END, 201, 216, 301);
     // TPMMS(S_BEGIN, S_END, 217, 248, 317);
-    create_index(317, 348, 417);
+    // create_index(317, 348, 417);
+    // search_by_index(50, 417, 420, 517);
+
 
 }

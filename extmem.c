@@ -35,6 +35,7 @@ void freeBuffer(Buffer *buf)
     free(buf->data);
 }
 
+
 unsigned char *getNewBlockInBuffer(Buffer *buf)
 {
     unsigned char *blkPtr;
@@ -64,6 +65,11 @@ void freeBlockInBuffer(unsigned char *blk, Buffer *buf)
 {
     *(blk - 1) = BLOCK_AVAILABLE;
     buf->numFreeBlk++;
+}
+
+void clearBlockInBuffer(unsigned char *blk, Buffer *buf)
+{
+    memset(blk, 0, buf->blkSize * sizeof(unsigned char));
 }
 
 int dropBlockOnDisk(unsigned int addr)
