@@ -110,6 +110,7 @@ int inner_sort(Buffer *buf)
         find_data_in_buf(buf, &i);
         read_tuple_from_blk(buf->data, i, data);
         min = data[0];
+        // printf("%d, %d\n", data[0], data[1]);
         k = i;
         for(j=i+TUPLE_SIZE; j<buf->bufSize-TUPLE_SIZE; j=j+TUPLE_SIZE)
         {
@@ -153,6 +154,7 @@ int merge_sort(Buffer *buf, int input_blk_start, int input_blk_end, int output_b
         }
     }
     output_blk = getNewBlockInBuffer(buf);
+    clearBlockInBuffer(output_blk, buf);
     output_blk_offset = 0;
 
     while(seg_cnt < seg_num)
@@ -183,6 +185,13 @@ int merge_sort(Buffer *buf, int input_blk_start, int input_blk_end, int output_b
                 {
                     perror("Reading Block Failed!\n");
                     return -1;
+                }
+
+                read_tuple_from_blk(buf_blk_ptrs[i], 0, data);
+                if(data[0] < min)
+                {
+                    min = data[0];
+                    k=i;
                 }
             }
             else if(data[0] < min)
@@ -235,9 +244,9 @@ int TPMMS(int blk_start, int blk_end, int inner_blk_start, int inner_blk_end, in
     int epoch = (blk_end - blk_start + 1) / buf.numAllBlk;
     for(i=0; i<epoch; i++)
     {
-        for(int j=1; j<=8; j++)
+        for(int j=0; j<8; j++)
         {
-            int blk_index = i*buf.numAllBlk + j;
+            int blk_index = blk_start + i*buf.numAllBlk + j;
             /* Read the block from the hard disk */
             if ((blk = readBlockFromDisk(blk_index, &buf)) == NULL)
             {
@@ -301,7 +310,7 @@ int create_index(int input_blk_start, int input_blk_end, int output_blk_start)
         if(output_blk_offset >= buf.blkSize-TUPLE_SIZE)
         {
             next_blk += 1;
-            printf("%d\n", next_blk);
+            // printf("%d\n", next_blk);
             write_tuple_to_blk(output_blk+output_blk_offset, next_blk, BLK_END);
             if (writeBlockToDisk(output_blk, next_blk-1, &buf) != 0)
             {
@@ -355,12 +364,12 @@ int search_by_index(int target_key, int index_blk_start, int index_blk_end, int 
         search_blk_start = i;
         search_blk_end = j;
         
-        printf("%d, %d\n", search_blk_start, search_blk_end);
+        // printf("%d, %d\n", search_blk_start, search_blk_end);
         for(j=0; j<=valid_blk_num*(buf.blkSize+1); j+=TUPLE_SIZE)
         {
             find_data_in_buf(&buf, &j);
             read_tuple_from_blk(buf.data, j, data);
-            printf("%d, %d\n", data[0], data[1]);
+            // printf("%d, %d\n", data[0], data[1]);
             if(data[0] > target_key)
             {        
                 search_blk_end = data[1] - 1;
@@ -373,13 +382,11 @@ int search_by_index(int target_key, int index_blk_start, int index_blk_end, int 
                 search_blk_start = data[1];
             }
 
-            printf("%d, %d\n", search_blk_start, search_blk_end);
         }
         if(search_flag == 1)    break;
         i += buf.numAllBlk;
     }
 
-    printf("%d, %d\n", search_blk_start, search_blk_end);
     // 在带搜索的磁盘块中寻找目标值
     output_blk = getNewBlockInBuffer(&buf);
     output_blk_offset = 0;
@@ -526,7 +533,7 @@ int sort_merge_join(int R_start, int R_end, int S_start, int S_end, int output_b
                 read_tuple_from_blk(s+s_offset, 0, s_data);
             }
         }
-        printf("%d, %d\n", r_blk, s_blk);
+        // printf("%d, %d\n", r_blk, s_blk);
         if(r_data[0] < s_data[0])
         {
             r_offset += TUPLE_SIZE;
@@ -595,6 +602,8 @@ int sort_merge_join(int R_start, int R_end, int S_start, int S_end, int output_b
                             perror("Reading Block Failed!\n");
                             return -1;
                         }
+                        s_offset = 0;
+                        read_tuple_from_blk(s+s_offset, 0, s_data);
                     } 
                 }
             }
@@ -613,6 +622,16 @@ int sort_merge_join(int R_start, int R_end, int S_start, int S_end, int output_b
 
     }
 
+    if(output_blk_offset != 0)
+    {
+        next_blk += 1;
+        write_tuple_to_blk(output_blk+output_blk_offset, next_blk, BLK_END);
+        if (writeBlockToDisk(output_blk, next_blk-1, &buf) != 0)
+        {
+            perror("Writing Block Failed!\n");
+            return -1;
+        } 
+    }
     /* Check the number of IO's */
     printf("IO's is %d\n", buf.numIO); 
 }
@@ -725,9 +744,11 @@ int intersect(int R_start, int R_end, int S_start, int S_end, int output_blk_sta
 
             while(r_data[0] == s_data[0])
             {
+                // printf("r: (%d, %d)\n", r_data[0], r_data[1]);
+                // printf("s: (%d, %d)\n", s_data[0], s_data[1]);
                 if(r_data[1] == s_data[1])
                 {
-                    printf("%d, %d\n", r_data[0], r_data[1]);
+                    printf("(%d, %d)\n", r_data[0], r_data[1]);
                     write_tuple_to_blk(output_blk+output_blk_offset, r_data[0], r_data[1]);
                     output_blk_offset += TUPLE_SIZE;
                     if(output_blk_offset >= buf.blkSize - TUPLE_SIZE)
@@ -766,6 +787,8 @@ int intersect(int R_start, int R_end, int S_start, int S_end, int output_blk_sta
                             perror("Reading Block Failed!\n");
                             return -1;
                         }
+                        s_offset = 0;
+                        read_tuple_from_blk(s+s_offset, 0, s_data);        
                     } 
                 }
             }
@@ -781,7 +804,17 @@ int intersect(int R_start, int R_end, int S_start, int S_end, int output_blk_sta
             }
             s_offset = 0;
         }
+    }
 
+    if(output_blk_offset != 0)
+    {
+        next_blk += 1;
+        write_tuple_to_blk(output_blk+output_blk_offset, next_blk, BLK_END);
+        if (writeBlockToDisk(output_blk, next_blk-1, &buf) != 0)
+        {
+            perror("Writing Block Failed!\n");
+            return -1;
+        } 
     }
 
     /* Check the number of IO's */
@@ -795,7 +828,7 @@ int main(int argc, char **argv)
     // TPMMS(S_BEGIN, S_END, 217, 248, 317);
     // create_index(317, 348, 417);
     // search_by_index(50, 417, 420, 517);
-    // sort_merge_join(301, 316, 317, 348, 601);
-    intersect(301, 316, 317, 348, 701);
+    sort_merge_join(301, 316, 317, 348, 601);
+    // intersect(301, 316, 317, 348, 701);
 
 }
