@@ -728,7 +728,7 @@ int intersect(int R_start, int R_end, int S_start, int S_end, int output_blk_sta
                 if(r_data[1] == s_data[1])
                 {
                     printf("%d, %d\n", r_data[0], r_data[1]);
-                    write_tuple_to_blk(output_blk+output_blk_offset, r_data[0]+10, r_data[1]+10);
+                    write_tuple_to_blk(output_blk+output_blk_offset, r_data[0], r_data[1]);
                     output_blk_offset += TUPLE_SIZE;
                     if(output_blk_offset >= buf.blkSize - TUPLE_SIZE)
                     {
